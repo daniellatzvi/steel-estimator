@@ -25,19 +25,40 @@ const client = new Anthropic({
   timeout: 120000
 });
 
-const EXTRACTION_PROMPT = `You are an experienced structural steel estimator reviewing structural construction drawings.
+const EXTRACTION_PROMPT = `You are a structural steel fabrication estimator reviewing structural construction drawings.
 
-Go through every page and identify ALL steel members and materials. For each one return:
-- mark: piece mark if shown, otherwise abbreviate by type (B=beam, C=column, BR=brace, PL=plate, MISC=misc)
-- description: what it is (Wide Flange Beam, HSS Column, Angle Brace, Base Plate, Stair Stringer, Handrail, Grating, etc)
-- section: size exactly as written on the drawing (W12x26, HSS6x6x1/4, L4x4x3/8, PL1/2, etc). Use "TBD" if not labeled.
-- quantity: count of identical members. Use 1 if only one shown or unclear.
+Your job is to extract ONLY items that a steel fabrication shop would fabricate and supply.
+
+INCLUDE these items:
+- W-shape columns and beams (e.g. W10x49, W18x35, W21x55)
+- HSS columns and beams (e.g. HSS8x8x3/8, HSS10x4x3/8)
+- Base plates (e.g. BP-1, BP-2, or explicit sizes like PL 3/4x12x12)
+- Steel lintels using W-shapes or HSS (e.g. L-3 = W8x15, L-8 = HSS14x4x3/8)
+- Bearing plates from bearing plate schedules
+- Channels used as structural members (e.g. C12x20.7, MC12)
+- Continuous ledger angles (e.g. L6x3.5x5/16 continuous at masonry walls)
+- Misc fab steel: stair stringers, hangers (C4x5.4), frames at large roof openings, canopy framing, WT shapes
+- Plates: cap plates, base plates, stiffener plates, moment connection plates when explicitly dimensioned
+
+EXCLUDE these items - do NOT list them:
+- Open web steel joists (e.g. 10K1, 16K3, 22K9, 24LH09, 28K7, LH series) — supplied by joist manufacturer
+- Light gage metal framing (studs, track, headers — e.g. 1000S200-97, 600S162-54, H-1, H-2)
+- Precast concrete lintels
+- Reinforcing bar (rebar) and anchor rods embedded in concrete or masonry
+- Metal roof deck and floor deck (1.5" or 3" deck)
+- Concrete and masonry items
+- Civil/site steel
+- Mechanical equipment and supports
+
+For each fabricated steel member found, return:
+- mark: piece mark if shown (e.g. C-1, B-3), otherwise use type abbreviation (B=beam, C=column, PL=plate, L=lintel, MISC=misc)
+- description: what it is (Wide Flange Beam, HSS Column, Base Plate, Steel Lintel, Ledger Angle, Stair Stringer, etc)
+- section: size exactly as written on the drawing (W12x26, HSS6x6x1/4, L4x4x3/8, PL3/4x12x12, etc). Use "TBD" if not labeled.
+- quantity: count of identical members if shown. Use 1 if unclear.
 - length_ft: length in decimal feet from dimension strings if shown, otherwise 0
-- notes: grid line, level, or other useful location context
+- notes: page number, grid line, level, or location context. Flag uncertain items with [VERIFY].
 
-Be thorough — missing a member is worse than including an uncertain one.
-Skip cover sheets and general notes pages.
-
+If a member appears on multiple pages, list each occurrence separately.
 Return ONLY a valid JSON array. No explanation, no markdown fences.`;
 
 app.post('/api/extract', upload.single('drawing'), async (req, res) => {
@@ -113,8 +134,7 @@ app.post('/api/extract', upload.single('drawing'), async (req, res) => {
       // pdf-parse failed, continue
     }
 
-    // Step 2: Send PDF directly to Claude vision (works without any system tools)
-    // Claude can natively read PDFs up to ~32MB
+    // Step 2: Send PDF directly to Claude vision
     const pdfSizeMB = fileBuffer.length / 1024 / 1024;
     
     if (pdfSizeMB <= 30) {
