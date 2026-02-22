@@ -25,6 +25,24 @@ const client = new Anthropic({
   timeout: 120000
 });
 
+// Attempt to salvage a truncated or malformed JSON array
+function parseJsonSafe(raw) {
+  const cleaned = raw.replace(/```json|```/g, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch(e) {
+    // Try to recover a partial array by truncating at last complete object
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (lastBrace > 0) {
+      try {
+        const partial = cleaned.slice(0, lastBrace + 1) + ']';
+        return JSON.parse(partial);
+      } catch(e2) {}
+    }
+    return null;
+  }
+}
+
 const EXTRACTION_PROMPT = `You are a structural steel fabrication estimator reviewing structural construction drawings.
 
 Your job is to extract ONLY items that a steel fabrication shop would fabricate and supply.
@@ -94,13 +112,13 @@ app.post('/api/extract', upload.single('drawing'), async (req, res) => {
       send({ status: 'Analyzing drawing...' });
       const response = await client.messages.create({
         model: 'claude-opus-4-6',
-        max_tokens: 4096,
+        max_tokens: 8192,
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: fileBuffer.toString('base64') }},
           { type: 'text', text: EXTRACTION_PROMPT }
         ]}]
       });
-      const members = JSON.parse(response.content[0].text.trim().replace(/```json|```/g, '').trim());
+      const members = parseJsonSafe(response.content[0].text);
       return done({ done: true, members: Array.isArray(members) ? members : [], method: 'image', pages: 1 });
     }
 
@@ -119,13 +137,13 @@ app.post('/api/extract', upload.single('drawing'), async (req, res) => {
         send({ status: `Found text content across ${pageCount} pages. Running AI extraction...` });
         const response = await client.messages.create({
           model: 'claude-opus-4-6',
-          max_tokens: 4096,
+          max_tokens: 8192,
           messages: [{ role: 'user', content: [{
             type: 'text',
             text: `${EXTRACTION_PROMPT}\n\nDRAWING TEXT CONTENT (${pageCount} pages):\n${text.slice(0, 80000)}`
           }]}]
         });
-        const members = JSON.parse(response.content[0].text.trim().replace(/```json|```/g, '').trim());
+        const members = parseJsonSafe(response.content[0].text);
         return done({ done: true, members: Array.isArray(members) ? members : [], method: 'text', pages: pageCount });
       }
       
@@ -142,13 +160,13 @@ app.post('/api/extract', upload.single('drawing'), async (req, res) => {
       const base64Pdf = fileBuffer.toString('base64');
       const response = await client.messages.create({
         model: 'claude-opus-4-6',
-        max_tokens: 4096,
+        max_tokens: 8192,
         messages: [{ role: 'user', content: [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf }},
           { type: 'text', text: EXTRACTION_PROMPT }
         ]}]
       });
-      const members = JSON.parse(response.content[0].text.trim().replace(/```json|```/g, '').trim());
+      const members = parseJsonSafe(response.content[0].text);
       return done({ done: true, members: Array.isArray(members) ? members : [], method: 'pdf-vision', pages: pageCount });
     }
 
@@ -180,15 +198,14 @@ app.post('/api/extract', upload.single('drawing'), async (req, res) => {
 
         const response = await client.messages.create({
           model: 'claude-opus-4-6',
-          max_tokens: 2048,
+          max_tokens: 4096,
           messages: [{ role: 'user', content: [
             { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: chunkBase64 }},
             { type: 'text', text: EXTRACTION_PROMPT + `\n\nNote: These are pages ${start+1}-${end} of the drawing set. Tag your notes with the page number.` }
           ]}]
         });
 
-        const raw = response.content[0].text.trim().replace(/```json|```/g, '').trim();
-        const chunkMembers = JSON.parse(raw);
+        const chunkMembers = parseJsonSafe(response.content[0].text);
         if (Array.isArray(chunkMembers)) allMembers.push(...chunkMembers);
 
         send({ status: `Pages ${start+1}–${end} done. ${allMembers.length} members found so far...`, page: end, totalPages });
