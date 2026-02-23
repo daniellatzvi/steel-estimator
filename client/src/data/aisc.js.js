@@ -57,7 +57,14 @@ export const AISC_WEIGHTS = {
   'L5X5X5/16': 5.28, 'L5X5X3/8': 6.3, 'L5X5X1/2': 8.2, 'L5X5X5/8': 10.3, 'L5X5X3/4': 12.3,
   'L6X6X3/8': 7.65, 'L6X6X1/2': 10.1, 'L6X6X5/8': 12.4, 'L6X6X3/4': 14.9, 'L6X6X1': 19.6,
 
-  // HSS Rectangular/Square (common sizes) - lbs/ft
+  // Unequal leg angles - lbs/ft
+  'L3X2X1/4': 1.92, 'L3X2X5/16': 2.36, 'L3X2X3/8': 2.77,
+  'L3.5X2.5X1/4': 2.44, 'L3.5X2.5X5/16': 2.99, 'L3.5X2.5X3/8': 3.58,
+  'L4X3X1/4': 2.77, 'L4X3X5/16': 3.38, 'L4X3X3/8': 4.1, 'L4X3X1/2': 5.3,
+  'L5X3X1/4': 3.24, 'L5X3X5/16': 4.0, 'L5X3X3/8': 4.74, 'L5X3X1/2': 6.2,
+  'L5X3-1/2X1/4': 3.50, 'L5X3-1/2X5/16': 4.32, 'L5X3-1/2X3/8': 5.1,
+  'L6X3-1/2X5/16': 4.99, 'L6X3-1/2X3/8': 5.9, 'L6X3-1/2X1/2': 7.78,
+  'L6X4X5/16': 5.31, 'L6X4X3/8': 6.3, 'L6X4X1/2': 8.3,
   'HSS2X2X1/8': 1.54, 'HSS2X2X3/16': 2.27, 'HSS2X2X1/4': 2.93,
   'HSS3X3X1/8': 2.39, 'HSS3X3X3/16': 3.48, 'HSS3X3X1/4': 4.51, 'HSS3X3X5/16': 5.48, 'HSS3X3X3/8': 6.39,
   'HSS3-1/2X3-1/2X3/16': 4.09, 'HSS3-1/2X3-1/2X1/4': 5.34, 'HSS3-1/2X3-1/2X5/16': 6.53, 'HSS3-1/2X3-1/2X3/8': 7.66,
@@ -111,6 +118,8 @@ function normalizeSection(section) {
     .replace(/⅓/g, '1/3')
     .replace(/⅔/g, '2/3')
     .replace(/x/g, 'X')
+    // Insert hyphen between digit and fraction: 3½ -> 3-1/2
+    .replace(/(\d)(1\/8|1\/4|3\/8|1\/2|5\/8|3\/4|7\/8|1\/3|2\/3)/g, '$1-$2')
     .trim();
 }
 
@@ -124,10 +133,13 @@ export function lookupWeight(section) {
   // Apply unicode normalization first
   let key = normalizeSection(section).toUpperCase().replace(/\s+/g, '');
   
-  // Handle "STD PIPE X" or "PIPE X STD" formats -> PIPEXSTD
-  const pipeMatch = key.match(/(?:STD\s*)?PIPE\s*([0-9.-]+)\s*(?:STD|XH|XXH)?/i);
+  // Handle "STD PIPE 3-1/2" or "PIPE 3.5 STD" or "STD PIPE 3½ DIA" formats
+  const pipeMatch = key.match(/(?:STD\s*)?PIPE\s*([0-9.\-/]+)/i);
   if (pipeMatch) {
-    const size = pipeMatch[1].replace('.', '');
+    // Normalize size: 3-1/2 -> 3.5, 3.5 -> 3.5
+    let size = pipeMatch[1].replace(/-1\/2$/, '.5').replace(/-1\/4$/, '.25').replace(/-3\/4$/, '.75');
+    // Remove trailing non-numeric
+    size = size.replace(/[^0-9.]/g, '');
     const schedule = key.includes('XH') ? 'XH' : 'STD';
     const pipeKey = `PIPE${size}${schedule}`;
     if (AISC_WEIGHTS[pipeKey]) return AISC_WEIGHTS[pipeKey];
