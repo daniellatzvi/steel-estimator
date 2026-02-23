@@ -120,6 +120,10 @@ function normalizeSection(section) {
     .replace(/x/g, 'X')
     // Insert hyphen between digit and fraction: 3½ -> 3-1/2
     .replace(/(\d)(1\/8|1\/4|3\/8|1\/2|5\/8|3\/4|7\/8|1\/3|2\/3)/g, '$1-$2')
+    // Convert decimal dimensions to fractional: 3.5 -> 3-1/2, 5.5 -> 5-1/2 (but NOT wall thickness like 0.312)
+    .replace(/\b([1-9])\.5\b/g, '$1-1/2')
+    .replace(/\b([1-9])\.25\b/g, '$1-1/4')
+    .replace(/\b([1-9])\.75\b/g, '$1-3/4')
     .trim();
 }
 
@@ -147,6 +151,23 @@ export function lookupWeight(section) {
   
   // Try direct lookup first
   if (AISC_WEIGHTS[key]) return AISC_WEIGHTS[key];
+  
+  // Handle HSS with decimal wall thickness: HSS10X0.312 -> treat 0.312 as 5/16
+  // This handles cases where AI reads wall thickness as decimal instead of fraction
+  const hssDecimalWall = key.match(/^(HSS\d+(?:-\d+\/\d+)?X\d+(?:-\d+\/\d+)?)X(0\.\d+)$/);
+  if (hssDecimalWall) {
+    const base = hssDecimalWall[1];
+    const decimal = parseFloat(hssDecimalWall[2]);
+    const wallFractions = [[0.125,'1/8'],[0.1875,'3/16'],[0.25,'1/4'],[0.3125,'5/16'],[0.375,'3/8'],[0.5,'1/2'],[0.625,'5/8'],[0.75,'3/4']];
+    for (const [val, frac] of wallFractions) {
+      if (Math.abs(decimal - val) < 0.01) {
+        // For square HSS where only one dimension shown, try NxN format
+        const singleDim = base.match(/^HSS(\d+(?:-\d+\/\d+)?)$/);
+        const tryKey = singleDim ? `${base}X${singleDim[1]}X${frac}` : `${base}X${frac}`;
+        if (AISC_WEIGHTS[tryKey]) return AISC_WEIGHTS[tryKey];
+      }
+    }
+  }
   const decimalToFraction = {
     '.125': '1/8', '.1875': '3/16', '.25': '1/4', '.3125': '5/16',
     '.375': '3/8', '.4375': '7/16', '.5': '1/2', '.5625': '9/16',
