@@ -94,7 +94,7 @@ export const AISC_WEIGHTS = {
 
   // Standard Pipe - lbs/ft  
   'PIPE1STD': 1.68, 'PIPE1.25STD': 2.27, 'PIPE1.5STD': 2.72, 'PIPE2STD': 3.65,
-  'PIPE2.5STD': 5.79, 'PIPE3STD': 7.58, 'PIPE4STD': 10.79, 'PIPE6STD': 18.97,
+  'PIPE2.5STD': 5.79, 'PIPE3STD': 7.58, 'PIPE3.5STD': 9.11, 'PIPE4STD': 10.79, 'PIPE6STD': 18.97,
   'PIPE1XH': 2.17, 'PIPE2XH': 5.02, 'PIPE3XH': 10.25, 'PIPE4XH': 14.98,
 };
 
@@ -150,7 +150,16 @@ export function lookupWeight(section) {
     if (AISC_WEIGHTS[pipeKey]) return AISC_WEIGHTS[pipeKey];
   }
   
-  // Handle HSS with no wall thickness specified - return lightest common size as minimum estimate
+  // Handle angle with no thickness: L6X3-1/2 -> try common thicknesses
+  const angleNoThick = key.match(/^L(\d+(?:-\d+\/\d+)?)X(\d+(?:-\d+\/\d+)?)$/);
+  if (angleNoThick) {
+    const leg1 = angleNoThick[1];
+    const leg2 = angleNoThick[2];
+    for (const frac of ['5/16','3/8','1/4','1/2']) {
+      const tryKey = `L${leg1}X${leg2}X${frac}`;
+      if (AISC_WEIGHTS[tryKey]) return AISC_WEIGHTS[tryKey];
+    }
+  }
   // These show as "HSS4X4" with no wall - flag as approximate
   const hssNoWall = key.match(/^HSS(\d+(?:-\d+\/\d+)?)(?:X(\d+(?:-\d+\/\d+)?))?$/);
   if (hssNoWall) {
