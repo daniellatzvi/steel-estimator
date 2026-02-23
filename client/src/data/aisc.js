@@ -60,17 +60,25 @@ export const AISC_WEIGHTS = {
   // HSS Rectangular/Square (common sizes) - lbs/ft
   'HSS2X2X1/8': 1.54, 'HSS2X2X3/16': 2.27, 'HSS2X2X1/4': 2.93,
   'HSS3X3X1/8': 2.39, 'HSS3X3X3/16': 3.48, 'HSS3X3X1/4': 4.51, 'HSS3X3X5/16': 5.48, 'HSS3X3X3/8': 6.39,
+  'HSS3-1/2X3-1/2X3/16': 4.09, 'HSS3-1/2X3-1/2X1/4': 5.34, 'HSS3-1/2X3-1/2X5/16': 6.53, 'HSS3-1/2X3-1/2X3/8': 7.66,
   'HSS4X4X1/8': 3.22, 'HSS4X4X3/16': 4.75, 'HSS4X4X1/4': 6.16, 'HSS4X4X5/16': 7.51, 'HSS4X4X3/8': 8.77, 'HSS4X4X1/2': 11.1,
   'HSS5X5X3/16': 6.01, 'HSS5X5X1/4': 7.81, 'HSS5X5X5/16': 9.51, 'HSS5X5X3/8': 11.1, 'HSS5X5X1/2': 14.3,
+  'HSS5-1/2X5-1/2X3/16': 6.64, 'HSS5-1/2X5-1/2X1/4': 8.64, 'HSS5-1/2X5-1/2X5/16': 10.6, 'HSS5-1/2X5-1/2X3/8': 12.4,
   'HSS6X6X3/16': 7.27, 'HSS6X6X1/4': 9.46, 'HSS6X6X5/16': 11.5, 'HSS6X6X3/8': 13.6, 'HSS6X6X1/2': 17.3, 'HSS6X6X5/8': 21.2,
+  'HSS7X7X1/4': 11.8, 'HSS7X7X5/16': 14.5, 'HSS7X7X3/8': 17.1, 'HSS7X7X1/2': 22.1,
   'HSS8X8X1/4': 12.7, 'HSS8X8X5/16': 15.6, 'HSS8X8X3/8': 18.4, 'HSS8X8X1/2': 23.8, 'HSS8X8X5/8': 29.4,
+  'HSS9X9X1/4': 14.5, 'HSS9X9X5/16': 17.8, 'HSS9X9X3/8': 21.1, 'HSS9X9X1/2': 27.2,
   'HSS10X10X1/4': 16.1, 'HSS10X10X5/16': 19.8, 'HSS10X10X3/8': 23.4, 'HSS10X10X1/2': 30.5,
   'HSS12X12X5/16': 24.1, 'HSS12X12X3/8': 28.6, 'HSS12X12X1/2': 37.3,
   // Rectangular HSS
   'HSS6X4X1/4': 8.15, 'HSS6X4X5/16': 9.95, 'HSS6X4X3/8': 11.7, 'HSS6X4X1/2': 14.9,
+  'HSS7X5X5/16': 12.1, 'HSS7X5X3/8': 14.4, 'HSS7X5X1/2': 18.8,
   'HSS8X4X1/4': 10.0, 'HSS8X4X3/8': 14.5, 'HSS8X4X1/2': 18.5,
   'HSS8X6X1/4': 11.6, 'HSS8X6X3/8': 17.1, 'HSS8X6X1/2': 21.8,
+  'HSS10X4X5/16': 13.3, 'HSS10X4X3/8': 15.8, 'HSS10X4X1/2': 20.5,
   'HSS10X6X5/16': 15.6, 'HSS10X6X3/8': 18.7, 'HSS10X6X1/2': 23.8,
+  'HSS12X4X5/16': 15.6, 'HSS12X4X3/8': 18.7, 'HSS12X4X1/2': 24.1,
+  'HSS14X4X3/8': 22.2, 'HSS14X4X1/2': 28.6,
 
   // HSS Round (pipe) - lbs/ft
   'HSS2.5X.25': 2.27, 'HSS3X.25': 2.76, 'HSS3.5X.25': 3.26, 'HSS4X.25': 3.75,
@@ -88,19 +96,45 @@ export const AISC_WEIGHTS = {
 export const PLATE_LBS_PER_SQFT_PER_INCH = 40.8; // 0.2833 * 144
 
 /**
+ * Normalize unicode fractions and common variations to standard ASCII format
+ */
+function normalizeSection(section) {
+  if (!section) return '';
+  return section
+    .replace(/⅛/g, '1/8')
+    .replace(/¼/g, '1/4')
+    .replace(/⅜/g, '3/8')
+    .replace(/½/g, '1/2')
+    .replace(/⅝/g, '5/8')
+    .replace(/¾/g, '3/4')
+    .replace(/⅞/g, '7/8')
+    .replace(/⅓/g, '1/3')
+    .replace(/⅔/g, '2/3')
+    .replace(/x/g, 'X')
+    .trim();
+}
+
+/**
  * Look up weight per foot for a section designation
  * Normalizes input: removes spaces, converts to uppercase, handles common variations
  */
 export function lookupWeight(section) {
   if (!section) return null;
   
-  // Normalize: uppercase, remove spaces
-  let key = section.toUpperCase().replace(/\s+/g, '');
+  // Apply unicode normalization first
+  let key = normalizeSection(section).toUpperCase().replace(/\s+/g, '');
+  
+  // Handle "STD PIPE X" or "PIPE X STD" formats -> PIPEXSTD
+  const pipeMatch = key.match(/(?:STD\s*)?PIPE\s*([0-9.-]+)\s*(?:STD|XH|XXH)?/i);
+  if (pipeMatch) {
+    const size = pipeMatch[1].replace('.', '');
+    const schedule = key.includes('XH') ? 'XH' : 'STD';
+    const pipeKey = `PIPE${size}${schedule}`;
+    if (AISC_WEIGHTS[pipeKey]) return AISC_WEIGHTS[pipeKey];
+  }
   
   // Try direct lookup first
   if (AISC_WEIGHTS[key]) return AISC_WEIGHTS[key];
-  
-  // Normalize fraction representations: 0.25 -> 1/4, 0.375 -> 3/8, 0.5 -> 1/2, 0.625 -> 5/8, 0.75 -> 3/4
   const decimalToFraction = {
     '.125': '1/8', '.1875': '3/16', '.25': '1/4', '.3125': '5/16',
     '.375': '3/8', '.4375': '7/16', '.5': '1/2', '.5625': '9/16',
