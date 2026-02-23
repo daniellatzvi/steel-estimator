@@ -137,33 +137,44 @@ export function lookupWeight(section) {
   // Apply unicode normalization first
   let key = normalizeSection(section).toUpperCase().replace(/\s+/g, '');
   
-  // Handle "STD PIPE 3-1/2" or "PIPE 3.5 STD" or "STD PIPE 3½ DIA" formats
-  const pipeMatch = key.match(/(?:STD\s*)?PIPE\s*([0-9.\-/]+)/i);
+  // Handle pipe formats: "STD PIPE 3-1/2" DIA", "PIPE 3.5 STD", "STD PIPE 3½"
+  // Strip inch marks, DIA, and whitespace before matching
+  const pipeClean = key.replace(/["\u2019\u201d]/g, '').replace(/\bDIA\b/gi, '').replace(/\s+/g, ' ').trim();
+  const pipeMatch = pipeClean.match(/(?:STD\s*)?PIPE\s*([0-9.\-/]+)/i);
   if (pipeMatch) {
-    // Normalize size: 3-1/2 -> 3.5, 3.5 -> 3.5
-    let size = pipeMatch[1].replace(/-1\/2$/, '.5').replace(/-1\/4$/, '.25').replace(/-3\/4$/, '.75');
-    // Remove trailing non-numeric
-    size = size.replace(/[^0-9.]/g, '');
+    let size = pipeMatch[1]
+      .replace(/-1\/2$/, '.5').replace(/-1\/4$/, '.25').replace(/-3\/4$/, '.75')
+      .replace(/[^0-9.]/g, '');
     const schedule = key.includes('XH') ? 'XH' : 'STD';
     const pipeKey = `PIPE${size}${schedule}`;
     if (AISC_WEIGHTS[pipeKey]) return AISC_WEIGHTS[pipeKey];
   }
   
-  // Try direct lookup first
-  if (AISC_WEIGHTS[key]) return AISC_WEIGHTS[key];
+  // Handle HSS with no wall thickness specified - return lightest common size as minimum estimate
+  // These show as "HSS4X4" with no wall - flag as approximate
+  const hssNoWall = key.match(/^HSS(\d+(?:-\d+\/\d+)?)(?:X(\d+(?:-\d+\/\d+)?))?$/);
+  if (hssNoWall) {
+    const dim1 = hssNoWall[1];
+    const dim2 = hssNoWall[2] || dim1;
+    // Try lightest common walls in order
+    for (const frac of ['1/4','5/16','3/8','3/16','1/2']) {
+      const tryKey = `HSS${dim1}X${dim2}X${frac}`;
+      if (AISC_WEIGHTS[tryKey]) return AISC_WEIGHTS[tryKey]; // returns lightest available
+    }
+  }
   
-  // Handle HSS with decimal wall thickness: HSS10X0.312 -> treat 0.312 as 5/16
-  // This handles cases where AI reads wall thickness as decimal instead of fraction
-  const hssDecimalWall = key.match(/^(HSS\d+(?:-\d+\/\d+)?X\d+(?:-\d+\/\d+)?)X(0\.\d+)$/);
+  // Handle HSS with decimal wall thickness
+  // HSS10X0.312 = HSS10x10x5/16 (single dimension = square section)
+  // HSS8X6X0.25 = HSS8x6x1/4 (two dimensions = rectangular)
+  const hssDecimalWall = key.match(/^HSS(\d+(?:-\d+\/\d+)?)(?:X(\d+(?:-\d+\/\d+)?))?X(0\.\d+)$/);
   if (hssDecimalWall) {
-    const base = hssDecimalWall[1];
-    const decimal = parseFloat(hssDecimalWall[2]);
+    const dim1 = hssDecimalWall[1];
+    const dim2 = hssDecimalWall[2] || dim1; // if no second dim, it's square
+    const decimal = parseFloat(hssDecimalWall[3]);
     const wallFractions = [[0.125,'1/8'],[0.1875,'3/16'],[0.25,'1/4'],[0.3125,'5/16'],[0.375,'3/8'],[0.5,'1/2'],[0.625,'5/8'],[0.75,'3/4']];
     for (const [val, frac] of wallFractions) {
       if (Math.abs(decimal - val) < 0.01) {
-        // For square HSS where only one dimension shown, try NxN format
-        const singleDim = base.match(/^HSS(\d+(?:-\d+\/\d+)?)$/);
-        const tryKey = singleDim ? `${base}X${singleDim[1]}X${frac}` : `${base}X${frac}`;
+        const tryKey = `HSS${dim1}X${dim2}X${frac}`;
         if (AISC_WEIGHTS[tryKey]) return AISC_WEIGHTS[tryKey];
       }
     }
